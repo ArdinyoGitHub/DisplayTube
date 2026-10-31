@@ -35,7 +35,7 @@ jobs:
 
       - name: APK (debug imzali)
         run: |
-          android/build.sh
+          bash android/build.sh
           mkdir -p "$RUNNER_TEMP/out" && cp android/build/DisplayTube.apk "$RUNNER_TEMP/out/"
 
       - name: AAB (Google Play)
@@ -50,7 +50,7 @@ jobs:
             echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             export UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
           fi
-          android/build.sh --aab
+          bash android/build.sh --aab
           rm -f "$RUNNER_TEMP/upload.jks"
           cp android/build/DisplayTube.aab "$RUNNER_TEMP/out/"
           # Kontrol: AAB manifesti beklenen degerlerde mi
