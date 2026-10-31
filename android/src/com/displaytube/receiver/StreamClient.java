@@ -23,7 +23,9 @@ import java.nio.ByteBuffer;
  */
 final class StreamClient {
 
-    interface Listener { void onStatus(String text); }
+    static final int STATE_WAITING_PC = 0, STATE_CONNECTED = 1, STATE_STREAMING = 2;
+
+    interface Listener { void onState(int state); }
 
     static final int PACKET_CONFIG = 1;
     static final int PACKET_KEY_FRAME = 2;
@@ -31,7 +33,6 @@ final class StreamClient {
 
     private static final String TAG = "DisplayTube";
     private static final int RETRY_MS = 500;
-    private static final String WAITING = "PC bekleniyor...\nUSB ile bagla ve PC'de pc\\stream.ps1 calistir.";
 
     private final String host;
     private final int port;
@@ -79,7 +80,7 @@ final class StreamClient {
                 Log.w(TAG, "Oturum bitti: " + e);
             }
             if (!running) break;
-            listener.onStatus(WAITING);
+            listener.onState(STATE_WAITING_PC);
             try { Thread.sleep(RETRY_MS); } catch (InterruptedException e) { break; }
         }
     }
@@ -90,7 +91,7 @@ final class StreamClient {
         s.setTcpNoDelay(true);
         s.setReceiveBufferSize(1 << 20);
         s.connect(new InetSocketAddress(host, port), 2000);
-        listener.onStatus("Baglandi, goruntu bekleniyor...");
+        listener.onState(STATE_CONNECTED);
 
         MediaCodec codec = null;
         Thread drain = null;
@@ -135,7 +136,7 @@ final class StreamClient {
                 if (!started) {
                     if (type != PACKET_KEY_FRAME) continue;
                     started = true;
-                    listener.onStatus(null);
+                    listener.onState(STATE_STREAMING);
                 }
                 queue(codec, buf, len);
             }

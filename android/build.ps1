@@ -40,7 +40,9 @@ $classes = Get-ChildItem "$Out\classes" -Recurse -Filter *.class | ForEach-Objec
 Run "$Bt\d8.bat" --release --min-api 26 --lib $Jar --output "$Out\dex" @classes
 
 Write-Host '==> aapt2'
-Run "$Bt\aapt2.exe" link -I $Jar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') -o "$Out\unaligned.apk"
+# Kaynaklar (uygulama simgesi) derlenip baglanir; kodda R sinifi kullanilmiyor.
+Run "$Bt\aapt2.exe" compile --dir (Join-Path $PSScriptRoot 'res') -o "$Out\res.zip"
+Run "$Bt\aapt2.exe" link -I $Jar --manifest (Join-Path $PSScriptRoot 'AndroidManifest.xml') -R "$Out\res.zip" -o "$Out\unaligned.apk"
 
 # classes.dex'i APK'ya ekle
 Add-Type -AssemblyName System.IO.Compression.FileSystem

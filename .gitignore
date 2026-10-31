@@ -18,3 +18,8 @@ backup/
 
 # Hata ayiklama anahtari (yalnizca yerel debug imzalama)
 android/debug.keystore
+
+# Surum paketleri
+release/
+pc/**/bin/
+

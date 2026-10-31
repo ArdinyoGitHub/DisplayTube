@@ -99,6 +99,8 @@ sealed class CaptureSession : IDisposable
             cursor = new Cursor(device, context, work, Width, Height);
             encoder = EncoderFactory.Create(device, context, ad.Luid, Width, Height, opt);
             Log.Info("Kodlayici: " + encoder.Name);
+            Status.Emit("encoder", encoder.Name);
+            Status.Emit("size", $"{Width}x{Height}");
         }
     }
 
@@ -111,6 +113,8 @@ sealed class CaptureSession : IDisposable
         long frameTicks = 10_000_000L / opt.Fps;
         var stats = Stopwatch.StartNew();
         bool haveFrame = false;
+        var fpsMark = Stopwatch.StartNew();
+        long fpsFrames = 0;
 
         while (true)
         {
@@ -153,6 +157,11 @@ sealed class CaptureSession : IDisposable
             frames++;
             if (frames >= maxFrames) return frames;
 
+            if (stats.ElapsedMilliseconds >= 2_000 && fpsMark.ElapsedMilliseconds >= 2_000)
+            {
+                Status.Emit("fps", ((frames - fpsFrames) * 1000.0 / fpsMark.ElapsedMilliseconds).ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+                fpsFrames = frames; fpsMark.Restart();
+            }
             if (stats.ElapsedMilliseconds >= 10_000)
             {
                 Log.Info($"{frames} kare kodlandi ({captured} yakalandi), {encoder.Stats()}");

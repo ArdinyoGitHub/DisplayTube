@@ -7,7 +7,10 @@
 //   [tur: 1 bayt][uzunluk: 4 bayt, big-endian][Annex-B H.264]   tur 1=SPS+PPS 2=anahtar kare 3=kare
 //
 // Kullanim: DisplayTubeCapture.exe [--port 27183] [--display auto|\\.\DISPLAYn] [--fps 60]
-//                                  [--bitrate 12000000] [--software] [--adb <adb.exe>] [--once] [--selftest]
+//                                  [--bitrate 12000000] [--software] [--adb <adb.exe>] [--launch-app <paket/.Aktivite>]
+//                                  [--once] [--selftest]
+// stdout: makinece okunur durum satirlari ("#client 1", "#encoder ...", "#fps 59.9", "#size 1920x1080"),
+// stderr: insan icin gunluk.
 
 using System.Diagnostics;
 using System.Net;
@@ -17,7 +20,8 @@ namespace DisplayTube;
 
 static class Program
 {
-    static int Main(string[] args)
+    // DisplayTube.exe (bildirim alani uygulamasi) bunu "--engine ..." ile de cagirir.
+    internal static int Main(string[] args)
     {
         var opt = Options.Parse(args);
         if (opt == null) return 2;
@@ -25,7 +29,8 @@ static class Program
 
         var listener = new TcpListener(IPAddress.Loopback, opt.Port);   // yalnizca USB (adb reverse)
         listener.Start();
-        if (opt.Adb != null) AdbWatch.Start(opt.Adb, opt.Port);
+        if (opt.Adb != null) AdbWatch.Start(opt.Adb, opt.Port, opt.LaunchApp);
+        Status.Emit("listening", opt.Port.ToString());
 
         do
         {
@@ -33,8 +38,10 @@ static class Program
             using var client = listener.AcceptTcpClient();
             client.NoDelay = true;
             Log.Info("Istemci baglandi");
+            Status.Emit("client", "1");
             Serve(client, opt);
             Log.Info("Istemci ayrildi");
+            Status.Emit("client", "0");
         } while (!opt.Once);
         return 0;
     }
@@ -108,6 +115,7 @@ sealed class Options
     public string? Adb;
     public bool Once;
     public bool SelfTest;
+    public string? LaunchApp;   // kablo takilinca telefonda acilacak uygulama, orn. com.displaytube.receiver/.MainActivity
 
     public static Options? Parse(string[] a)
     {
@@ -125,6 +133,7 @@ sealed class Options
                 case "--adb": o.Adb = Next(); break;
                 case "--once": o.Once = true; break;
                 case "--selftest": o.SelfTest = true; break;
+                case "--launch-app": o.LaunchApp = Next(); break;
                 default: Console.Error.WriteLine("Bilinmeyen arguman: " + a[i]); return null;
             }
         }
@@ -164,10 +173,19 @@ static class Log
     public static void Info(string m) => Console.Error.WriteLine($"[DisplayTube {DateTime.Now:HH:mm:ss}] {m}");
 }
 
+/// Bildirim alani uygulamasi icin durum satirlari (stdout).
+static class Status
+{
+    public static void Emit(string key, string value)
+    {
+        lock (typeof(Status)) { Console.Out.WriteLine("#" + key + " " + value); Console.Out.Flush(); }
+    }
+}
+
 /// Kablo cikip takilinca adb reverse kaybolur; 2 saniyede bir kontrol edip yeniden kurar.
 static class AdbWatch
 {
-    public static void Start(string adb, int port)
+    public static void Start(string adb, int port, string? launchApp)
     {
         string rule = "tcp:" + port;
         var t = new Thread(() =>
@@ -183,9 +201,15 @@ static class AdbWatch
                     {
                         string? r = Run(adb, $"reverse {rule} {rule}");
                         ok = r != null && !r.Contains("error");
-                        if (ok) Log.Info("adb reverse " + rule + " kuruldu");
+                        if (ok)
+                        {
+                            Log.Info("adb reverse " + rule + " kuruldu");
+                            // Kablo yeniden takildi: telefondaki uygulamayi da ac.
+                            if (launchApp != null && lastOk == false) Run(adb, "shell am start -n " + launchApp);
+                        }
                         else if (lastOk) Log.Info("Telefon ayrildi, tekrar takilmasi bekleniyor");
                     }
+                    if (ok != lastOk) Status.Emit("phone", ok ? "1" : "0");
                     lastOk = ok;
                 }
                 catch (Exception e) { Log.Info("adb kontrolu hatasi: " + e.Message); }

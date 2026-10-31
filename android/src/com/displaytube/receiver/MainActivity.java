@@ -2,6 +2,7 @@ package com.displaytube.receiver;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.SurfaceHolder;
@@ -9,19 +10,25 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.util.Locale;
+
 /**
- * Tam ekran alici. PC'deki DisplayTubeServer'a 127.0.0.1:27183 uzerinden
- * (adb reverse ile USB) baglanir, H.264 akisini SurfaceView'a cizer.
+ * Tam ekran alici. PC'deki DisplayTube'a 127.0.0.1:27183 uzerinden (adb reverse
+ * ile USB) baglanir, H.264 akisini SurfaceView'a cizer. Goruntu yokken durum ekrani gosterir.
  */
 public class MainActivity extends Activity implements SurfaceHolder.Callback, StreamClient.Listener {
 
     static final String HOST = "127.0.0.1";
     static final int PORT = 27183;
 
+    private static final boolean TR = "tr".equals(Locale.getDefault().getLanguage());
+
     private SurfaceView surfaceView;
-    private TextView status;
+    private LinearLayout panel;
+    private TextView statusText, hintText;
     private StreamClient client;
 
     @Override
@@ -43,16 +50,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
         root.addView(surfaceView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        status = new TextView(this);
-        status.setTextColor(Color.LTGRAY);
-        status.setTextSize(18);
-        status.setGravity(Gravity.CENTER);
-        root.addView(status, new FrameLayout.LayoutParams(
+        // Durum ekrani: baslik, durum, ipucu
+        panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setBackgroundColor(Color.BLACK);
+
+        TextView title = new TextView(this);
+        title.setText("DisplayTube");
+        title.setTextColor(Color.rgb(0, 150, 255));
+        title.setTextSize(32);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        panel.addView(title);
+
+        statusText = new TextView(this);
+        statusText.setTextColor(Color.WHITE);
+        statusText.setTextSize(20);
+        statusText.setGravity(Gravity.CENTER);
+        statusText.setPadding(0, 24, 0, 12);
+        panel.addView(statusText);
+
+        hintText = new TextView(this);
+        hintText.setTextColor(Color.GRAY);
+        hintText.setTextSize(14);
+        hintText.setGravity(Gravity.CENTER);
+        panel.addView(hintText);
+
+        TextView version = new TextView(this);
+        version.setText("v0.3");
+        version.setTextColor(Color.DKGRAY);
+        version.setTextSize(12);
+        version.setGravity(Gravity.CENTER);
+        version.setPadding(0, 32, 0, 0);
+        panel.addView(version);
+
+        root.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         setContentView(root);
         hideSystemUi();
-        onStatus("PC bekleniyor...\nUSB ile bagla ve PC'de pc\\stream.ps1 calistir.");
+        onState(StreamClient.STATE_WAITING_PC);
     }
 
     @Override
@@ -91,11 +129,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
 
     // StreamClient.Listener (arka plan thread'inden cagrilir)
     @Override
-    public void onStatus(final String text) {
+    public void onState(final int state) {
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                status.setText(text);
-                status.setVisibility(text == null ? View.GONE : View.VISIBLE);
+                if (state == StreamClient.STATE_STREAMING) {
+                    panel.setVisibility(View.GONE);
+                    return;
+                }
+                panel.setVisibility(View.VISIBLE);
+                if (state == StreamClient.STATE_CONNECTED) {
+                    statusText.setText(TR ? "Bağlandı, görüntü bekleniyor..." : "Connected, waiting for video...");
+                    hintText.setText("");
+                } else {
+                    statusText.setText(TR ? "Bilgisayar bekleniyor..." : "Waiting for computer...");
+                    hintText.setText(TR
+                            ? "Telefonu USB ile bilgisayara bağlayın ve bilgisayarda DisplayTube'u başlatın.\nUSB hata ayıklama açık olmalı."
+                            : "Connect the phone to the computer over USB and start DisplayTube on the computer.\nUSB debugging must be enabled.");
+                }
             }
         });
     }
