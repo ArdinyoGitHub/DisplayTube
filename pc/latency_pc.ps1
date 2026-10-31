@@ -9,7 +9,7 @@ icin olcum dogrudur (saat penceresinin ekrana cizilme suresi dahil).
 
 Kullanim: .\latency_pc.ps1 [-Seconds 6] [-Encoder h264_mf] [-Port 27184]
 #>
-param([int]$Seconds = 6, [string]$Encoder = '', [int]$Port = 27184, [int]$Bits = 16, [string[]]$Extra = @())
+param([int]$Seconds = 6, [string]$Encoder = '', [int]$Port = 27184, [int]$Bits = 16, [string[]]$Extra = @(), [switch]$Native)
 
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
@@ -20,11 +20,18 @@ $b = $scr.Bounds
 $clock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass',
     '-File', (Join-Path $PSScriptRoot 'clock_window.ps1'), '-X', $b.X, '-Y', $b.Y, '-Width', $b.Width, '-Height', $b.Height, '-Bits', $Bits
 
-$srvArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'stream.ps1'), '-Port', $Port, '-NoAdb', '-Once')
-if ($Encoder) { $srvArgs += @('-Encoder', "`"$Encoder`"") }
-$srvArgs += $Extra
 $log = Join-Path $env:TEMP 'dt_latpc.log'
-$srv = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardError $log -RedirectStandardOutput "$log.out" -ArgumentList $srvArgs
+if ($Native) {
+    # Yerel yakalama programi (DisplayTubeCapture, ffmpeg'siz)
+    $exe = Join-Path $PSScriptRoot 'DisplayTubeCapture\bin\Release\net8.0\DisplayTubeCapture.exe'
+    $srv = Start-Process $exe -PassThru -WindowStyle Hidden -RedirectStandardError $log -RedirectStandardOutput "$log.out" `
+        -ArgumentList (@('--port', $Port, '--once') + $Extra)
+} else {
+    $srvArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'stream.ps1'), '-Port', $Port, '-NoAdb', '-Once', '-Engine', 'ffmpeg')
+    if ($Encoder) { $srvArgs += @('-Encoder', "`"$Encoder`"") }
+    $srvArgs += $Extra
+    $srv = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardError $log -RedirectStandardOutput "$log.out" -ArgumentList $srvArgs
+}
 
 try {
     for ($i = 0; $i -lt 120 -and -not (netstat -ano | Select-String ":$Port .*LISTENING"); $i++) { Start-Sleep -Milliseconds 250 }

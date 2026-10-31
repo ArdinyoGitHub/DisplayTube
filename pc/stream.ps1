@@ -29,6 +29,7 @@ param(
     [switch]$ListOutputs,
     [switch]$NoAdb,
     [switch]$Once,
+    [ValidateSet('auto','native','ffmpeg')][string]$Engine = 'auto',   # auto: once yerel program, olmazsa ffmpeg
     [string]$EncArgs = ''       # kodlayiciya eklenecek ek argumanlar (deneme icin), orn. '-scenario video_conference'
 )
 
@@ -132,6 +133,30 @@ function Find-Adb {
 
 # ---------------------------------------------------------------------------
 
+# --- Yerel motor (DisplayTubeCapture: Desktop Duplication + GPU donusum + MF donanim kodlayici) ---
+# ffmpeg yoluna gore PC tarafi gecikme ~75 ms -> ~23 ms. Bu sistemde calismazsa ffmpeg'e dusulur.
+if ($Engine -ne 'ffmpeg' -and -not $TestFile -and -not $ListOutputs) {
+    $nativeExe = Join-Path $PSScriptRoot 'DisplayTubeCapture\bin\Release\net8.0\DisplayTubeCapture.exe'
+    if (-not (Test-Path $nativeExe) -and (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        Step 'Yerel yakalama programi derleniyor'
+        dotnet build (Join-Path $PSScriptRoot 'DisplayTubeCapture') -c Release -nologo -v q | Out-Null
+    }
+    if (Test-Path $nativeExe) {
+        Step 'Yerel motor deneniyor'
+        $test = & $nativeExe --selftest --fps $Fps 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Ok "Yerel motor: $test"
+            $bps = [int]([double]($Bitrate -replace '[MmKk]$','') * $(if ($Bitrate -match '[Mm]$') { 1e6 } elseif ($Bitrate -match '[Kk]$') { 1e3 } else { 1 }))
+            $nArgs = @('--port', $Port, '--display', 'auto', '--fps', $Fps, '--bitrate', $bps)
+            if (-not $NoAdb) { $adb = Find-Adb; if ($adb) { $nArgs += @('--adb', $adb) } }
+            if ($Once) { $nArgs += '--once' }
+            & $nativeExe @nArgs
+            return
+        }
+        Warn "Yerel motor bu sistemde calismadi ($test), ffmpeg yoluna geciliyor."
+    } elseif ($Engine -eq 'native') { throw "Yerel program yok: $nativeExe" }
+    if ($Engine -eq 'native') { throw 'Yerel motor calismadi.' }
+}
 $sel = Select-Pipeline
 $ff = $sel.Ffmpeg; $enc = $sel.Enc
 
