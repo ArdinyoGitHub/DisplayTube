@@ -23,3 +23,7 @@ android/debug.keystore
 release/
 pc/**/bin/
 
+# Linux devir paketi (git'ten uretilir)
+linux-handoff/
+linux-handoff.zip
+
