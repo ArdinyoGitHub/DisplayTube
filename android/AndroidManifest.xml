@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.displaytube.receiver"
-    android:versionCode="2"
-    android:versionName="0.3">
+    android:versionCode="3"
+    android:versionName="0.3.1">
 
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
 
-    <!-- Sadece 127.0.0.1'e (adb reverse, USB) baglanmak icin; agdan veri almiyoruz. -->
+    <!-- Sadece 127.0.0.1'e (adb reverse, USB) baglanmak icin; internete ya da yerel aga baglanilmaz.
+         Ham TCP soketi kullanildigindan usesCleartextTraffic gerekmez (o ayar yalnizca HTTP istemcilerini etkiler). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="DisplayTube"
         android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
-        android:usesCleartextTraffic="true">
+        android:allowBackup="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"

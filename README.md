@@ -87,7 +87,7 @@ The Linux version works with any desktop (GNOME, KDE, wlroots, X11) and any grap
 | Part | Folder | Build |
 |---|---|---|
 | Windows app + capture engine | `pc/DisplayTubeApp`, `pc/DisplayTubeCapture` | .NET 8 SDK |
-| Android receiver | `android/` | JDK 17 + Android SDK (platform 34, build-tools 34.0.0), no Gradle: `android/build.ps1` |
+| Android receiver | `android/` | JDK 17 + Android SDK (platform 36, build-tools 36.0.0), no Gradle: `android/build.ps1` (`-Aab` for the Play Store bundle) |
 | Release zip | `release.ps1` | builds everything into `release/` |
 | Linux server | `linux/server` | C, libevdi + FFmpeg (libavcodec/libavfilter): `make` |
 | Linux release | `linux/release.sh` | `release/DisplayTube-v<version>-linux.tar.gz` |

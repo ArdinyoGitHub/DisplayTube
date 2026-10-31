@@ -1,0 +1,62 @@
+# Android alici uygulamasini derler: debug APK (PC paketleri icin) ve Google Play icin AAB.
+# AAB, depo sirlari tanimliysa yukleme anahtariyla imzalanir; tanimli degilse imzasiz uretilir.
+# Sirlar (Settings > Secrets and variables > Actions), istege bagli:
+#   UPLOAD_KEYSTORE_BASE64  upload.jks dosyasinin base64 hali (base64 -w0 upload.jks)
+#   UPLOAD_STORE_PASSWORD, UPLOAD_KEY_PASSWORD, UPLOAD_KEY_ALIAS
+name: Android
+
+on:
+  push:
+    branches: [master]
+    paths: ['android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK (platform 36, build-tools 36.0.0)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: bundletool
+        run: curl -sSfL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+
+      - name: APK (debug imzali)
+        run: |
+          android/build.sh
+          mkdir -p "$RUNNER_TEMP/out" && cp android/build/DisplayTube.apk "$RUNNER_TEMP/out/"
+
+      - name: AAB (Google Play)
+        env:
+          BUNDLETOOL: ${{ runner.temp }}/bundletool.jar
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
+          fi
+          android/build.sh --aab
+          rm -f "$RUNNER_TEMP/upload.jks"
+          cp android/build/DisplayTube.aab "$RUNNER_TEMP/out/"
+          # Kontrol: AAB manifesti beklenen degerlerde mi
+          java -jar "$BUNDLETOOL" dump manifest --bundle=android/build/DisplayTube.aab | grep -E 'versionCode|targetSdkVersion|package='
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DisplayTube-android
+          path: ${{ runner.temp }}/out/

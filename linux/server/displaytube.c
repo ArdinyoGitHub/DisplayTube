@@ -36,7 +36,7 @@
 
 #define APP_PACKAGE "com.displaytube.receiver"
 #define APP_COMPONENT APP_PACKAGE "/.MainActivity"
-#define APK_VERSION_CODE 2     // android/AndroidManifest.xml ile ayni tutulmali
+#define APK_VERSION_CODE 3     // android/AndroidManifest.xml ile ayni tutulmali
 #ifndef DEFAULT_APK
 #define DEFAULT_APK "/usr/local/share/displaytube/DisplayTube.apk"
 #endif
