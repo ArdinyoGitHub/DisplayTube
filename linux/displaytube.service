@@ -1,0 +1,11 @@
+[Unit]
+Description=DisplayTube - Android telefonu USB ile ikinci ekran yapar
+After=default.target
+
+[Service]
+ExecStart=@PREFIX@/bin/displaytube
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

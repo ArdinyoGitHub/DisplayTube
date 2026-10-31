@@ -27,3 +27,7 @@ pc/**/bin/
 linux-handoff/
 linux-handoff.zip
 
+
+# Linux derleme ciktilari
+linux/probe/evdi_probe
+linux/server/displaytube

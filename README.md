@@ -39,6 +39,9 @@ Ayarlar ve günlük: `%APPDATA%\DisplayTube\`
 - Ekran kilitliyken Windows ekran yakalamaya izin vermez. Kilit açılınca yayın kendiliğinden devam eder.
 - Yayın sırasında aynı kablodan büyük dosya aktarımı yapmak görüntüyü kısa süre etkileyebilir.
 
+### Linux
+Linux sürümü masaüstünden (GNOME, KDE, wlroots, X11) ve ekran kartından bağımsızdır. `DisplayTube-v0.3-linux.tar.gz` dosyasını açıp `./install.sh` çalıştırın. Yükleyici gerekenleri (EVDI sanal ekran sürücüsü, adb, FFmpeg, VAAPI sürücüsü) indirir. Bir adım başarısız olursa sonda nedenini ve çözümünü yazar. Ayrıntılar: [linux/README.md](linux/README.md)
+
 ---
 
 ## English
@@ -74,6 +77,9 @@ Settings and log: `%APPDATA%\DisplayTube\`
 - Windows does not allow screen capture while the PC is locked. Streaming resumes after unlocking.
 - Large file transfers over the same cable while streaming can briefly affect the picture.
 
+### Linux
+The Linux version works with any desktop (GNOME, KDE, wlroots, X11) and any graphics card. Extract `DisplayTube-v0.3-linux.tar.gz` and run `./install.sh`. The installer downloads what is needed (EVDI virtual display driver, adb, FFmpeg, VAAPI driver). If a step fails, it tells you at the end what went wrong and how to fix it. Details: [linux/README.md](linux/README.md)
+
 ---
 
 ## Building from source
@@ -83,6 +89,8 @@ Settings and log: `%APPDATA%\DisplayTube\`
 | Windows app + capture engine | `pc/DisplayTubeApp`, `pc/DisplayTubeCapture` | .NET 8 SDK |
 | Android receiver | `android/` | JDK 17 + Android SDK (platform 34, build-tools 34.0.0), no Gradle: `android/build.ps1` |
 | Release zip | `release.ps1` | builds everything into `release/` |
+| Linux server | `linux/server` | C, libevdi + FFmpeg (libavcodec/libavfilter): `make` |
+| Linux release | `linux/release.sh` | `release/DisplayTube-v<version>-linux.tar.gz` |
 
 An older FFmpeg-based pipeline (`pc/stream.ps1`, `pc/DisplayTubeServer.cs`) and a Weylus-based prototype (`DisplayTube-weylus.bat`) are kept as fallbacks for development.
 

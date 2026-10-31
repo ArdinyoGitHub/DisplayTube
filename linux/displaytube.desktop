@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=DisplayTube
+Comment=Android telefonu USB ile ikinci ekran yapar
+Exec=systemctl --user restart displaytube.service
+Icon=video-display
+Terminal=false
+Categories=Utility;
+Actions=stop;
+
+[Desktop Action stop]
+Name=Durdur
+Exec=systemctl --user stop displaytube.service
