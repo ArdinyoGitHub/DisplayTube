@@ -1,0 +1,20 @@
+# Indirilen araclar ve buyuk ikililer (bkz. docs/PLAN.md)
+tools/
+weylus/
+*.7z
+*.zip
+
+# Derleme ciktilari
+pc/bin/
+pc/**/bin/
+pc/**/obj/
+android/build/
+
+# Test ciktilari (ham video, ekran goruntuleri)
+tests/
+
+# Yerel yedek kopya
+backup/
+
+# Hata ayiklama anahtari (yalnizca yerel debug imzalama)
+android/debug.keystore
