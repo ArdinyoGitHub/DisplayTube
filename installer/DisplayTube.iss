@@ -165,7 +165,7 @@ begin
   if FileExists(AdbExe) then
     Exec(AdbExe, 'kill-server', '', SW_HIDE, ewWaitUntilTerminated, Code);
   DelTree(ExpandConstant('{app}\platform-tools'), True, True, True);
-  { Zip'in icinde "platform-tools" klasoru var; {app} altina acilir }
+  { Zip'in icinde "platform-tools" klasoru var; uygulama klasorunun altina acilir }
   if not Exec('powershell.exe',
               '-NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath ''' + Zip +
               ''' -DestinationPath ''' + ExpandConstant('{app}') + ''' -Force"',
@@ -207,8 +207,8 @@ begin
 
     if Problems <> '' then
       SuppressibleMsgBox(CustomMessage('ProblemsTitle') + #13#10 + Problems + #13#10#13#10 +
-                         FmtMessage(CustomMessage('ProblemsLogs'),
-                                    [ExpandConstant('{log}'), ExpandConstant('{userappdata}\DisplayTube\log.txt')]),
+                         FmtMessage(CustomMessage('ProblemsLogs'), [ExpandConstant('{log}'),
+                                    ExpandConstant('{userappdata}\DisplayTube\log.txt')]),
                          mbError, MB_OK, IDOK);
   end;
 end;
