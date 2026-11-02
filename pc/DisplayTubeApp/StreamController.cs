@@ -52,6 +52,7 @@ sealed class StreamController
         StopEngine();
         if (adb != null) try { Adb.RemoveReverse(adb, Port); } catch { }
         worker?.Join(3000);
+        VirtualDisplay.Detach();
         Set(s => { s.Phase = Phase.Stopped; s.ClientConnected = false; s.Fps = 0; s.Message = null; });
     }
 
@@ -70,6 +71,7 @@ sealed class StreamController
         Set(s => { s.Phase = Phase.Error; s.Message = message; });
         running = false;
         StopEngine();
+        VirtualDisplay.Detach();
     }
 
     bool phoneReady;

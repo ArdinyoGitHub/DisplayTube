@@ -80,6 +80,7 @@ sealed class TrayApp : ApplicationContext
         Refresh();
         AppLog.Write("DisplayTube basladi");
         if (settings.StartStreamOnLaunch) controller.Start();
+        else VirtualDisplay.Detach();   // onceki oturum cokerse acik kalan bos sanal ekrani kapat
     }
 
     void ToggleStream()

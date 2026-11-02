@@ -190,6 +190,27 @@ static class VirtualDisplay
         Apply(cur.w, cur.h, 60);
     }
 
+    /// Sanal ekrani masaustunden ayirir (surucu yuklu kalir, ekran Windows'ta gorunmez olur).
+    /// DisplayTube durunca ya da kapaninca cagrilir; yoksa bos bir ikinci ekran acik kalir.
+    /// EnsureAttached/Apply sonraki baslatmada ekrani yeniden baglar.
+    public static void Detach()
+    {
+        try
+        {
+            var d = FindDisplay();
+            if (d == null || !d.Value.attached) return;
+            var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
+            EnumDisplaySettings(d.Value.name, -1, ref dm);
+            dm.dmPelsWidth = 0; dm.dmPelsHeight = 0; dm.dmPositionX = 0; dm.dmPositionY = 0;
+            dm.dmFields = 0x20 | 0x80000 | 0x100000;              // DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            int r = ChangeDisplaySettingsEx(d.Value.name, ref dm, IntPtr.Zero, 0x1 | 0x10000000, IntPtr.Zero);   // UPDATEREGISTRY | NORESET
+            if (r != 0) { AppLog.Write($"Sanal ekran ayrilamadi: ChangeDisplaySettingsEx {r}"); return; }
+            ChangeDisplaySettingsEx(null, IntPtr.Zero, IntPtr.Zero, 0, IntPtr.Zero);
+            AppLog.Write($"Sanal ekran masaustunden ayrildi ({d.Value.name})");
+        }
+        catch (Exception e) { AppLog.Write("Sanal ekran ayrilamadi: " + e.Message); }
+    }
+
     static (string name, bool attached)? WaitForDisplay(TimeSpan timeout)
     {
         var sw = Stopwatch.StartNew();
