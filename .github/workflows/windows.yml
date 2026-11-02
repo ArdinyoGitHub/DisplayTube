@@ -1,0 +1,67 @@
+# Windows surum paketi: zip ve kurulum programi (DisplayTube-Setup-v<surum>.exe).
+# Artifact olarak indirilebilir: Actions > Windows > DisplayTube-windows
+name: Windows
+
+on:
+  push:
+    branches: [master]
+    paths: ['pc/**', 'installer/**', 'android/**', 'VirtualDisplayDriver/**', 'release.ps1', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['pc/**', 'installer/**', 'android/**', 'VirtualDisplayDriver/**', 'release.ps1', '.github/workflows/windows.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Surum (ornek 0.4.0)'
+        default: '0.4.0'
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version || '0.4.0' }}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+      - name: APK
+        run: bash android/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: android/build/DisplayTube.apk
+
+  installer:
+    needs: apk
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: apk
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Zip ve kurulum programi
+        shell: pwsh
+        run: .\release.ps1 -Version $env:VERSION -Apk apk\DisplayTube.apk -Installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DisplayTube-windows
+          path: |
+            release/DisplayTube-Setup-v*.exe
+            release/DisplayTube-v*-win-x64.zip

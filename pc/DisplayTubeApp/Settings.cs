@@ -57,9 +57,20 @@ static class AppLog
     }
 }
 
-/// Arayuz metinleri: Turkce sistemde Turkce, digerlerinde Ingilizce.
+/// Arayuz metinleri. Varsayilan dil Ingilizce; Turkce yalnizca kurulum programinda secildiyse
+/// kullanilir. Kurulum, secilen dili exe'nin yanindaki language.txt dosyasina ("en" ya da "tr") yazar.
 static class T
 {
-    static readonly bool tr = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "tr";
+    static readonly bool tr = ReadLanguage() == "tr";
     public static string S(string turkish, string english) => tr ? turkish : english;
+
+    static string ReadLanguage()
+    {
+        try
+        {
+            string f = Path.Combine(AppContext.BaseDirectory, "language.txt");
+            return File.Exists(f) ? File.ReadAllText(f).Trim().ToLowerInvariant() : "en";
+        }
+        catch { return "en"; }
+    }
 }
