@@ -115,15 +115,13 @@ sealed class StreamController
                 if (!VirtualDisplay.InstallElevated() || !VirtualDisplay.IsInstalled())
                 { Fail(T.S("Surucu kurulamadi (gunluge bakin)", "Driver installation failed (see log)")); return; }
             }
-            VirtualDisplay.EnsureAttached();
-
-            // 3) Motor
-            if (!StartEngine()) return;
-
-            // 4) Telefon izleme dongusu
+            // 3) Telefon izleme dongusu. Sanal ekran ve motor yalnizca telefon bagliyken acik:
+            //    telefon yokken Windows'ta bos bir ekran kalmasin, pencereler oraya acilmasin.
+            VirtualDisplay.Detach();
             Set(s => { s.Phase = Phase.WaitingForPhone; s.Message = T.S("Telefon bekleniyor (USB)", "Waiting for phone (USB)"); });
             string? lastState = null;
             phoneReady = false;
+            int goneChecks = 0;
             while (running)
             {
                 string? state = Adb.DeviceState(adb);
@@ -131,7 +129,6 @@ sealed class StreamController
                 {
                     AppLog.Write("Telefon durumu: " + (state ?? "yok"));
                     lastState = state;
-                    if (state != "device") phoneReady = false;
                     Set(s =>
                     {
                         s.PhoneConnected = state == "device";
@@ -139,12 +136,27 @@ sealed class StreamController
                         else if (state == null) s.Message = T.S("Telefon bekleniyor (USB)", "Waiting for phone (USB)");
                     });
                 }
-                if (state == "device" && !phoneReady)
+                if (state == "device")
                 {
-                    PreparePhone();
-                    phoneReady = true;
+                    goneChecks = 0;
+                    if (!phoneReady)
+                    {
+                        VirtualDisplay.EnsureAttached();
+                        PreparePhone();
+                        if (!StartEngine()) return;
+                        phoneReady = true;
+                    }
                 }
-                if (engine != null && engine.HasExited && running)
+                else if (phoneReady && ++goneChecks >= 3)
+                {
+                    // ~6 sn: kablo kisa sure oynadiginda pencereler yer degistirmesin
+                    AppLog.Write("Telefon ayrildi: motor durduruldu, sanal ekran kapatildi");
+                    StopEngine();
+                    VirtualDisplay.Detach();
+                    phoneReady = false;
+                    Set(s => { s.ClientConnected = false; s.Fps = 0; s.Phase = Phase.WaitingForPhone; });
+                }
+                if (phoneReady && engine != null && engine.HasExited && running)
                 {
                     AppLog.Write("Motor durdu, yeniden baslatiliyor");
                     Thread.Sleep(1000);
