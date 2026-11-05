@@ -78,7 +78,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
         panel.addView(hintText);
 
         TextView version = new TextView(this);
-        version.setText("v0.3");
+        version.setText("v" + versionName());
         version.setTextColor(Color.DKGRAY);
         version.setTextSize(12);
         version.setGravity(Gravity.CENTER);
@@ -91,6 +91,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
         setContentView(root);
         hideSystemUi();
         onState(StreamClient.STATE_WAITING_PC);
+    }
+
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     @Override

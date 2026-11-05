@@ -31,3 +31,9 @@ linux-handoff.zip
 # Linux derleme ciktilari
 linux/probe/evdi_probe
 linux/server/displaytube
+
+# Play yukleme anahtari ve sifreleri ASLA depoya girmez
+*.jks
+*.keystore
+keystore.properties
+*.aab

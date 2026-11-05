@@ -18,7 +18,7 @@ sealed class StreamStatus
 sealed class StreamController
 {
     public const int Port = 27183;
-    const int ApkVersion = 2;   // android/AndroidManifest.xml versionCode ile ayni olmali
+    const int ApkVersion = 3;   // android/AndroidManifest.xml versionCode ile ayni olmali
 
     readonly Settings settings;
     readonly Func<string, string, bool> confirm;   // (baslik, metin) -> kullanici onayi (UI thread'de)
