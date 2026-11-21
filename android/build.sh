@@ -21,7 +21,7 @@ done
 rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex"
 
 echo "==> javac"
-javac -nowarn -source 8 -target 8 -bootclasspath "$JAR" -encoding UTF-8 -d "$OUT/classes" $(find src -name '*.java')
+javac -nowarn -source 8 -target 8 -parameters -bootclasspath "$JAR" -encoding UTF-8 -d "$OUT/classes" $(find src -name '*.java')
 
 echo "==> d8"
 "$BT/d8" --release --min-api 26 --lib "$JAR" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class')

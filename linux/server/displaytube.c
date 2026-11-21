@@ -1,9 +1,16 @@
 // DisplayTube Linux sunucusu: EVDI sanal ekran -> H.264 (VAAPI / NVENC / x264) -> TCP 127.0.0.1:27183
 // Telefon adb reverse ile baglanir. Kablo protokolu: [tur 1B][uzunluk 4B big-endian][yuk]
 //   1 = ayar (SPS+PPS, Annex-B), 2 = anahtar kare, 3 = kare. Her paket tam bir kare.
+//   Dokunmatik (telefon -> PC) ve ses (PC -> telefon): docs/PROTOKOL.md, touch.c, audio.c
 //
 // Kullanim: displaytube [--port 27183] [--size phone|WxH] [--bitrate 12000000] [--fps 60]
 //                       [--encoder auto|vaapi|nvenc|x264] [--apk DisplayTube.apk] [--no-adb]
+//                       [--audio sink|mirror|off] [--input mouse|touch|off] [--scale 67]
+//   --input: mouse = telefon hareketleri fareye cevirir (dokun = sol tik, basili tut = sag tik,
+//            surukle, iki parmakla kaydir); touch = cok parmakli dokunmatik ekran; off = kapali.
+//   --scale: --size phone iken telefon cozunurlugunun yuzdesi. Bilesimci (KWin vb.) EVDI ekranina her
+//            kareyi ekran kartindan kopyalar; tam cozunurlukte bu kopya tum masaustunu yavaslatabilir.
+//            %67 akici ve net (Galaxy A34: 1560x720). Telefon goruntuyu kendi donaniminda buyutur.
 //           displaytube --check     (kurulum denetimi: evdi, adb, kodlayicilar)
 // stdout'a durum satirlari: #client 0/1, #encoder <ad>, #size WxH, #fps <n>
 #define _GNU_SOURCE
@@ -34,9 +41,11 @@
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
+#include "dt.h"
+
 #define APP_PACKAGE "com.displaytube.receiver"
 #define APP_COMPONENT APP_PACKAGE "/.MainActivity"
-#define APK_VERSION_CODE 2     // android/AndroidManifest.xml ile ayni tutulmali
+#define APK_VERSION_CODE 4     // android/AndroidManifest.xml ile ayni tutulmali
 #ifndef DEFAULT_APK
 #define DEFAULT_APK "/usr/local/share/displaytube/DisplayTube.apk"
 #endif
@@ -46,10 +55,19 @@
 
 // ---------------------------------------------------------------- ayarlar
 
+enum { INPUT_OFF, INPUT_MOUSE, INPUT_TOUCH };
+
 static struct {
-    int port, width, height, bitrate, fps, adb;
+    int port, width, height, bitrate, fps, adb, audio, input, scale;
     const char *encoder, *apk;
-} opt = {PHONE_PORT, 0, 0, 12000000, 60, 1, "auto", DEFAULT_APK};
+} opt = {PHONE_PORT, 0, 0, 12000000, 60, 1, AUDIO_SINK, INPUT_MOUSE, 67, "auto", DEFAULT_APK};
+
+// Protokol (docs/PROTOKOL.md)
+enum { PKT_SERVER_HELLO = 4, PKT_AUDIO_CONFIG = 5, PKT_AUDIO = 6, PKT_HELLO = 0x80, PKT_TOUCH = 0x81, PKT_MOUSE = 0x82 };
+#define PROTOCOL_VERSION 1
+#define CAP_TOUCH 1
+#define CAP_AUDIO 2
+#define CAP_MOUSE 4
 
 static volatile sig_atomic_t stop;
 
@@ -59,7 +77,7 @@ static double now(void) {
     return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-static void logi(const char *fmt, ...) {
+void logi(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
@@ -80,7 +98,7 @@ static void status(const char *fmt, ...) {
 }
 
 // Masaustu bildirimi (freedesktop notify-send; her masaustunde ayni). Yoksa yalnizca log.
-static void notify(const char *msg) {
+void notify(const char *msg) {
     logi("%s", msg);
     pid_t pid = fork();
     if (pid == 0) {
@@ -259,11 +277,22 @@ static void make_edid(unsigned char e[128], int w, int hgt, int hz) {
 static int client = -1;
 static unsigned char client_cfg[512];
 static int client_cfg_len = -1;     // -1: bu istemciye henuz ayar gonderilmedi
+static unsigned char inbuf[4096];   // telefondan gelen yarim paketler
+static int inlen;
+static int audio_pipe[2] = {-1, -1};
+static int want_touch, want_mouse, audio_on;    // bu istemciyle anlasilan ozellikler
 
 static void client_close(void) {
     if (client < 0) return;
+    audio_stop();
+    touch_close();
+    mouse_close();
+    want_touch = want_mouse = audio_on = 0;
+    unsigned char junk[AUDIO_CHUNK];          // eski istemcinin sesi yenisine gitmesin
+    while (read(audio_pipe[0], junk, sizeof junk) > 0) { }
     close(client);
     client = -1;
+    inlen = 0;
     status("#client 0");
 }
 
@@ -501,6 +530,8 @@ out:
 // ---------------------------------------------------------------- EVDI yakalama
 
 static evdi_handle ev;
+static int ev_card = -1;
+static void touch_reopen(void);
 static struct evdi_buffer buf;
 static int have_buf, update_pending, fresh, need_encoder;
 static int frames_sent;
@@ -536,6 +567,7 @@ static void on_mode(struct evdi_mode m, void *u) {
     update_pending = 0;
     need_encoder = 1;
     status("#size %dx%d", m.width, m.height);
+    touch_reopen();
     request();
 }
 
@@ -558,6 +590,7 @@ static int evdi_start(void) {
     }
     ev = evdi_open(dev);
     if (ev == EVDI_INVALID_HANDLE) { logi("evdi_open(card%d) basarisiz", dev); return -1; }
+    ev_card = dev;
     unsigned char edid[128];
     make_edid(edid, opt.width, opt.height, opt.fps);
     evdi_connect2(ev, edid, sizeof edid, (uint32_t)opt.width * opt.height,
@@ -572,6 +605,107 @@ static void evdi_stop(void) {
     evdi_disconnect(ev);
     evdi_close(ev);
     ev = NULL;
+}
+
+// ---------------------------------------------------------------- telefondan gelenler
+
+// Sanal ekranin DRM baglayici adi (or. "DVI-I-1"): /sys/class/drm/card<N>-DVI-I-1
+static void connector_name(char *out, size_t n) {
+    out[0] = 0;
+    if (ev_card < 0) return;
+    char pat[64];
+    snprintf(pat, sizeof pat, "/sys/class/drm/card%d-*", ev_card);
+    glob_t g;
+    if (glob(pat, 0, NULL, &g) != 0) return;
+    if (g.gl_pathc > 0) {
+        const char *b = strrchr(g.gl_pathv[0], '/') + 1;
+        b = strchr(b, '-') + 1;
+        snprintf(out, n, "%s", b);
+    }
+    globfree(&g);
+}
+
+// Dokunmatik cihazi sanal ekranin boyutu ve adiyla (yeniden) kurar.
+static void touch_reopen(void) {
+    if (!want_touch || !have_buf) return;
+    char out[64];
+    connector_name(out, sizeof out);
+    touch_open(buf.width, buf.height, out);
+}
+
+static void put32(unsigned char *p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
+
+static void on_hello(const unsigned char *p, int len) {
+    if (len < 6) return;
+    int ver = (p[0] << 8) | p[1];
+    uint32_t caps = ((uint32_t)p[2] << 24) | (p[3] << 16) | (p[4] << 8) | p[5];
+    logi("telefon: protokol %d, yetenekler %u", ver, caps);
+
+    uint32_t mine = 0;
+    int input = opt.input;
+    if (input == INPUT_MOUSE && !(caps & CAP_MOUSE)) input = INPUT_TOUCH;   // fare kipini bilmeyen telefon
+    if (input != INPUT_OFF && (caps & (input == INPUT_MOUSE ? CAP_MOUSE : CAP_TOUCH))) {
+        if (touch_available()) {
+            if (input == INPUT_MOUSE) {
+                char out[64];
+                connector_name(out, sizeof out);
+                want_mouse = mouse_open(out) == 0;
+                if (want_mouse) mine |= CAP_MOUSE;
+            } else {
+                want_touch = 1;
+                mine |= CAP_TOUCH;
+                touch_reopen();
+            }
+        } else {
+            static int told;
+            if (!told++) notify("Dokunmatik kapali: /dev/uinput'a yazma izni yok. Yukleyiciyi yeniden calistirip oturumu kapatip acin.");
+        }
+    }
+    if (opt.audio != AUDIO_OFF && (caps & CAP_AUDIO)) mine |= CAP_AUDIO;
+
+    unsigned char h[6] = {PROTOCOL_VERSION >> 8, PROTOCOL_VERSION & 0xff};
+    put32(h + 2, mine);
+    send_packet(PKT_SERVER_HELLO, h, sizeof h);
+    if (mine & CAP_AUDIO) {
+        unsigned char a[6];
+        put32(a, AUDIO_RATE);
+        a[4] = AUDIO_CHANNELS;
+        a[5] = 1;   // PCM s16le
+        send_packet(PKT_AUDIO_CONFIG, a, sizeof a);
+        audio_on = audio_start(opt.audio, audio_pipe[1]) == 0;
+    }
+    status("#features%s%s%s", mine & CAP_TOUCH ? " touch" : "", mine & CAP_MOUSE ? " mouse" : "",
+           mine & CAP_AUDIO ? " audio" : "");
+}
+
+// Telefondan gelen veriyi paketlere boler. Hata/kopma -> -1.
+static int client_read(void) {
+    ssize_t r = recv(client, inbuf + inlen, sizeof inbuf - inlen, MSG_DONTWAIT);
+    if (r < 0 && (errno == EAGAIN || errno == EINTR)) return 0;
+    if (r <= 0) return -1;
+    inlen += (int)r;
+    int off = 0;
+    while (inlen - off >= 5) {
+        const unsigned char *h = inbuf + off;
+        uint32_t len = ((uint32_t)h[1] << 24) | (h[2] << 16) | (h[3] << 8) | h[4];
+        if (len > sizeof inbuf - 5) { logi("telefondan gecersiz paket (boy %u)", len); return -1; }
+        if ((uint32_t)(inlen - off - 5) < len) break;
+        if (h[0] == PKT_HELLO) on_hello(h + 5, (int)len);
+        else if (h[0] == PKT_TOUCH) touch_packet(h + 5, (int)len);
+        else if (h[0] == PKT_MOUSE) mouse_packet(h + 5, (int)len);
+        off += 5 + (int)len;
+        if (client < 0) return -1;   // gonderirken koptu
+    }
+    memmove(inbuf, inbuf + off, (size_t)(inlen - off));
+    inlen -= off;
+    return 0;
+}
+
+// Ses thread'inin boruya yazdigi 10 ms'lik parcalari gonderir.
+static void pump_audio(void) {
+    unsigned char chunk[AUDIO_CHUNK];
+    while (read(audio_pipe[0], chunk, sizeof chunk) == (ssize_t)sizeof chunk)
+        if (client >= 0 && audio_on) send_packet(PKT_AUDIO, chunk, sizeof chunk);
 }
 
 // ---------------------------------------------------------------- ana dongu
@@ -594,6 +728,8 @@ static void on_sig(int s) { (void)s; stop = 1; }
 static void usage(void) {
     fprintf(stderr, "kullanim: displaytube [--port N] [--size phone|WxH] [--bitrate bps] [--fps N]\n"
                     "                      [--encoder auto|vaapi|nvenc|x264] [--apk yol] [--no-adb]\n"
+                    "                      [--audio sink|mirror|off] [--input mouse|touch|off]\n"
+                    "                      [--scale 25..100]\n"
                     "          displaytube --check\n");
     exit(2);
 }
@@ -612,6 +748,8 @@ static int check(void) {
         if (n) printf("OK evdi %d sanal ekran cihazi\n", n);
         else { printf("HATA evdi surucu yuklu ama cihaz yok (initial_device_count=1)\n"); bad = 1; }
     }
+    if (touch_available()) printf("OK dokunmatik /dev/uinput yazilabilir\n");
+    else printf("UYARI dokunmatik /dev/uinput'a yazma izni yok, dokunmatik kapali\n");
     if (have_cmd("adb")) printf("OK adb bulundu\n");
     else { printf("HATA adb bulunamadi\n"); bad = 1; }
     if (access(opt.apk, R_OK) == 0) printf("OK apk %s\n", opt.apk);
@@ -644,15 +782,30 @@ int main(int argc, char **argv) {
         const char *a = argv[i];
         if (!strcmp(a, "--no-adb")) { opt.adb = 0; continue; }
         if (!strcmp(a, "--check")) { do_check = 1; continue; }
+        if (!strcmp(a, "--no-touch")) { opt.input = INPUT_OFF; continue; }
         if (i + 1 >= argc) usage();
         const char *v = argv[++i];
         if (!strcmp(a, "--port")) opt.port = atoi(v);
         else if (!strcmp(a, "--size")) size = v;
         else if (!strcmp(a, "--bitrate")) opt.bitrate = atoi(v);
         else if (!strcmp(a, "--fps")) opt.fps = atoi(v);
+        else if (!strcmp(a, "--scale")) {
+            opt.scale = atoi(v);
+            if (opt.scale < 25 || opt.scale > 100) usage();
+        }
         else if (!strcmp(a, "--encoder")) opt.encoder = v;
         else if (!strcmp(a, "--apk")) opt.apk = v;
-        else usage();
+        else if (!strcmp(a, "--input")) {
+            if (!strcmp(v, "mouse")) opt.input = INPUT_MOUSE;
+            else if (!strcmp(v, "touch")) opt.input = INPUT_TOUCH;
+            else if (!strcmp(v, "off")) opt.input = INPUT_OFF;
+            else usage();
+        } else if (!strcmp(a, "--audio")) {
+            if (!strcmp(v, "sink")) opt.audio = AUDIO_SINK;
+            else if (!strcmp(v, "mirror")) opt.audio = AUDIO_MIRROR;
+            else if (!strcmp(v, "off")) opt.audio = AUDIO_OFF;
+            else usage();
+        } else usage();
     }
     av_log_set_level(AV_LOG_QUIET);
     if (do_check) return check();
@@ -661,6 +814,8 @@ int main(int argc, char **argv) {
             logi("telefon boyutu okunamadi, 1920x1080 kullaniliyor");
             opt.width = 1920; opt.height = 1080;
         }
+        opt.width = opt.width * opt.scale / 100;
+        opt.height = opt.height * opt.scale / 100;
     } else if (sscanf(size, "%dx%d", &opt.width, &opt.height) != 2) usage();
     opt.width &= ~1;
     opt.height &= ~1;
@@ -672,6 +827,8 @@ int main(int argc, char **argv) {
 
     int ls = listen_on(opt.port);
     if (ls < 0) return 1;
+    if (pipe2(audio_pipe, O_CLOEXEC | O_NONBLOCK) < 0) { logi("pipe: %s", strerror(errno)); return 1; }
+    if (opt.input == INPUT_MOUSE) layout_start();
     logi("dinleniyor: 127.0.0.1:%d", opt.port);
     pthread_t adb_thread;
     if (opt.adb) pthread_create(&adb_thread, NULL, adb_watch, NULL);
@@ -690,9 +847,10 @@ int main(int argc, char **argv) {
         ctx.mode_changed_handler = on_mode;
         ctx.update_ready_handler = on_update;
 
-        struct pollfd p[3] = {
+        struct pollfd p[4] = {
             {.fd = evdi_get_event_ready(ev), .events = POLLIN},
             {.fd = ls, .events = POLLIN},
+            {.fd = audio_pipe[0], .events = POLLIN},
             {.fd = client, .events = POLLIN},
         };
         int timeout = IDLE_RESEND_MS;
@@ -700,7 +858,7 @@ int main(int argc, char **argv) {
             int left = (int)((last_send + IDLE_RESEND_MS / 1000.0 - now()) * 1000);
             timeout = left < 0 ? 0 : left;
         }
-        poll(p, client >= 0 ? 3 : 2, timeout);
+        poll(p, client >= 0 ? 4 : 3, timeout);
 
         if (p[0].revents & POLLIN) evdi_handle_events(ev, &ctx);
         if (p[1].revents & POLLIN) {
@@ -717,10 +875,8 @@ int main(int argc, char **argv) {
                 status("#client 1");
             }
         }
-        if (client >= 0 && (p[2].revents & (POLLIN | POLLHUP | POLLERR))) {
-            char tmp[256];
-            if (recv(client, tmp, sizeof tmp, MSG_DONTWAIT) <= 0) client_close();
-        }
+        if (client >= 0 && (p[3].revents & (POLLIN | POLLHUP | POLLERR)) && client_read() < 0) client_close();
+        if (p[2].revents & POLLIN) pump_audio();
 
         request();
         if (client < 0 || !have_buf) { fresh = 0; continue; }

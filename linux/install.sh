@@ -14,7 +14,7 @@
 #           ./install.sh --dry-run      (hicbir sey degistirmeden ne yapilacagini gosterir)
 set -uo pipefail
 
-VERSION=0.3
+VERSION=0.4
 EVDI_VERSION=1.15.1
 EVDI_SHA256=b120df303d14be09062157aab17a8598746c0caf2e076ff3388b4091186cf2d9
 EVDI_URL="https://github.com/DisplayLink/evdi/archive/v$EVDI_VERSION/evdi-$EVDI_VERSION.tar.gz"
@@ -184,7 +184,8 @@ if [ "$UNINSTALL" = 1 ]; then
   run rm -f "$HOME/.config/systemd/user/displaytube.service"
   run systemctl --user daemon-reload || true
   root rm -f "$PREFIX/bin/displaytube" "$PREFIX/share/applications/displaytube.desktop" \
-             /etc/modules-load.d/displaytube-evdi.conf /etc/modprobe.d/displaytube-evdi.conf
+             /etc/modules-load.d/displaytube-evdi.conf /etc/modprobe.d/displaytube-evdi.conf \
+             /etc/udev/rules.d/70-displaytube.rules
   root rm -rf "$PREFIX/share/displaytube"
   ok "DisplayTube dosyalari kaldirildi"
   echo "EVDI, adb ve FFmpeg gibi bagimliliklar baska programlar da kullanabilecegi icin kaldirilmadi."
@@ -253,6 +254,8 @@ case "$FAMILY" in
     pkg_install "DKMS ve kernel basliklari ($KPKG-headers)" dkms "$KPKG-headers"
     pkg_install "adb ve USB kurallari" android-tools android-udev
     pkg_install "FFmpeg ve VAAPI" ffmpeg libva libdrm libnotify
+    pkg_install "Ses kutuphanesi (PipeWire/PulseAudio istemcisi)" libpulse
+    pkg_install "Wayland istemci kutuphanesi (fare kipi)" wayland wayland-protocols
     has_gpu amd && pkg_install "AMD VAAPI surucusu (Mesa)" mesa
     has_gpu intel && pkg_install "Intel VAAPI surucusu" intel-media-driver
     ;;
@@ -262,6 +265,8 @@ case "$FAMILY" in
     pkg_install "DKMS ve kernel basliklari" dkms "linux-headers-$KERNEL"
     pkg_install "adb ve USB kurallari" adb android-sdk-platform-tools-common
     pkg_install "FFmpeg gelistirme kutuphaneleri" libavcodec-dev libavfilter-dev libavutil-dev libswscale-dev libnotify-bin
+    pkg_install "Ses gelistirme kutuphanesi (PipeWire/PulseAudio istemcisi)" libpulse-dev
+    pkg_install "Wayland gelistirme dosyalari (fare kipi)" libwayland-dev libwayland-bin wayland-protocols
     has_gpu amd && pkg_install "AMD VAAPI surucusu (Mesa)" mesa-va-drivers
     if has_gpu intel; then
       # Kodlama destegi non-free pakette; yoksa ozgur olani dene
@@ -280,6 +285,8 @@ case "$FAMILY" in
     pkg_install "Derleme araclari" gcc make pkgconf-pkg-config git curl libdrm-devel libnotify
     pkg_install "DKMS ve kernel basliklari" dkms "kernel-devel-$KERNEL"
     pkg_install "adb" android-tools
+    pkg_install "Ses gelistirme kutuphanesi (PipeWire/PulseAudio istemcisi)" pulseaudio-libs-devel
+    pkg_install "Wayland gelistirme dosyalari (fare kipi)" wayland-devel wayland-protocols-devel
     if dnf repolist --enabled 2>/dev/null | grep -q rpmfusion-free; then
       pkg_install "FFmpeg gelistirme kutuphaneleri" ffmpeg-devel
       has_gpu amd && pkg_install "AMD VAAPI surucusu (freeworld)" mesa-va-drivers-freeworld
@@ -294,12 +301,14 @@ case "$FAMILY" in
     pkg_install "Derleme araclari" gcc make pkg-config git curl libdrm-devel libnotify-tools
     pkg_install "DKMS ve kernel basliklari" dkms kernel-devel
     pkg_install "adb" android-tools
+    pkg_install "Ses gelistirme kutuphanesi (PipeWire/PulseAudio istemcisi)" libpulse-devel
+    pkg_install "Wayland gelistirme dosyalari (fare kipi)" wayland-devel wayland-protocols-devel
     pkg_install "FFmpeg gelistirme kutuphaneleri" ffmpeg-devel ||
       warn "openSUSE'de H.264 icin Packman deposu gerekebilir: https://en.opensuse.org/Additional_package_repositories#Packman"
     ;;
   *)
     problem "Bu dagitim ($DISTRO_ID) otomatik kurulumda tanimli degil" \
-      "Su bilesenleri paket yoneticinizle kurun: derleme araclari (gcc, make, pkg-config), dkms, calisan kernel'in basliklari, libdrm gelistirme dosyalari, adb, FFmpeg gelistirme kutuphaneleri (libavcodec/libavfilter/libavutil/libswscale), ekran kartiniza uygun VAAPI surucusu. Sonra yukleyiciyi yeniden calistirin."
+      "Su bilesenleri paket yoneticinizle kurun: derleme araclari (gcc, make, pkg-config), dkms, calisan kernel'in basliklari, libdrm gelistirme dosyalari, adb, FFmpeg gelistirme kutuphaneleri (libavcodec/libavfilter/libavutil/libswscale), ekran kartiniza uygun VAAPI surucusu, libpulse ve Wayland (wayland-client, wayland-protocols, wayland-scanner) gelistirme dosyalari. Sonra yukleyiciyi yeniden calistirin."
     ;;
 esac
 
@@ -371,6 +380,21 @@ else
   problem "EVDI'nin acilista yuklenme ayari yazilamadi" \
     "Elle: echo evdi | sudo tee /etc/modules-load.d/displaytube-evdi.conf; echo 'options evdi initial_device_count=1' | sudo tee /etc/modprobe.d/displaytube-evdi.conf"
 fi
+# Dokunmatik: oturumdaki kullanici /dev/uinput'a yazabilsin (systemd 'uaccess'), telefondan gelen
+# dokunmatik ekran da sanal ekrana eslensin (WL_OUTPUT; libinput kullanan bilesimciler okur).
+UDEV_RULES='# DisplayTube (https://github.com/ArdinyoGitHub/DisplayTube)
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="DTB DisplayTube Touchscreen", ENV{WL_OUTPUT}="$attr{phys}"'
+if root_write /etc/udev/rules.d/70-displaytube.rules "$UDEV_RULES" &&
+   root udevadm control --reload; then
+  root modprobe uinput || true
+  root udevadm trigger --subsystem-match=misc --sysname-match=uinput || true
+  ok "Dokunmatik izni ve ekran eslemesi (udev kurali)"
+else
+  problem "Dokunmatik icin udev kurali yazilamadi" \
+    "Dokunmatik calismayabilir. Elle: /etc/udev/rules.d/70-displaytube.rules dosyasina linux/README.md'deki kurali yazin."
+fi
+
 if [ "$DRY_RUN" = 1 ]; then :
 elif [ -d /sys/devices/evdi ]; then
   # Modul zaten yuklu (calisan bir yayin olabilir): kaldirmadan cihaz ekle
@@ -433,6 +457,7 @@ elif [ -x "$PREFIX/bin/displaytube" ]; then
     log "check: $line"
     case "$line" in
       "OK "*) ok "${line#OK }" ;;
+      "UYARI dokunmatik"*) warn "${line#UYARI } (oturumu kapatip acmaniz gerekebilir)" ;;
       "UYARI "*) warn "${line#UYARI }" ;;
       "HATA evdi"*) problem "Sanal ekran hazir degil: ${line#HATA evdi }" "Bilgisayari yeniden baslatin; sorun surerse yukleyiciyi yeniden calistirin." ;;
       "HATA adb"*) problem "adb bulunamadi" "adb paketini kurun (Arch: android-tools, Debian/Ubuntu: adb, Fedora: android-tools)." ;;

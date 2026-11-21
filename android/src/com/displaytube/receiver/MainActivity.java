@@ -2,9 +2,11 @@ package com.displaytube.receiver;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Point;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -17,7 +19,7 @@ import java.util.Locale;
 
 /**
  * Tam ekran alici. PC'deki DisplayTube'a 127.0.0.1:27183 uzerinden (adb reverse
- * ile USB) baglanir, H.264 akisini SurfaceView'a cizer. Goruntu yokken durum ekrani gosterir.
+ * ile USB) baglanir, H.264 akisini SurfaceView'a cizer, sesi calar, dokunuslari PC'ye gonderir. Goruntu yokken durum ekrani gosterir.
  */
 public class MainActivity extends Activity implements SurfaceHolder.Callback, StreamClient.Listener {
 
@@ -29,7 +31,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
     private SurfaceView surfaceView;
     private LinearLayout panel;
     private TextView statusText, hintText;
-    private StreamClient client;
+    private volatile StreamClient client;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +49,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
 
         surfaceView = new SurfaceView(this);
         surfaceView.getHolder().addCallback(this);
+        // Dokunuslar bilgisayara gider: sunucu fare kipini sectiyse fare olaylarina cevrilir
+        // (MouseInput), dokunmatik kipindeyse oldugu gibi (StreamClient.sendTouch).
+        final MouseInput mouse = new MouseInput(surfaceView);
+        surfaceView.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                StreamClient c = client;
+                if (c == null) return true;
+                if (c.mouseMode()) mouse.onTouch(e, c);
+                else c.sendTouch(e, v.getWidth(), v.getHeight());
+                return true;
+            }
+        });
         root.addView(surfaceView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -78,7 +92,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
         panel.addView(hintText);
 
         TextView version = new TextView(this);
-        version.setText("v0.3");
+        version.setText("v" + versionName());
         version.setTextColor(Color.DKGRAY);
         version.setTextSize(12);
         version.setGravity(Gravity.CENTER);
@@ -91,6 +105,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
         setContentView(root);
         hideSystemUi();
         onState(StreamClient.STATE_WAITING_PC);
+    }
+
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     @Override
@@ -112,7 +134,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, St
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        client = new StreamClient(HOST, PORT, holder.getSurface(), this);
+        Point size = new Point();
+        getWindowManager().getDefaultDisplay().getRealSize(size);
+        client = new StreamClient(HOST, PORT, holder.getSurface(), this, size.x, size.y);
         client.start();
     }
 
