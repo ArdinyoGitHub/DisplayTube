@@ -37,6 +37,8 @@ Check: `displaytube --check`. Logs: `journalctl --user -u displaytube -f`.
   DisplayTube creates a virtual absolute mouse (`DTB DisplayTube Mouse`) through `/dev/uinput` and finds where the
   DisplayTube monitor is with the standard `xdg-output` Wayland protocol, so no desktop setting is needed.
   Mouse mode needs a Wayland session; use touch mode on X11.
+  Tested on KDE Plasma 6.8. Other compositors that map absolute mice to the whole desktop (wlroots: sway, Hyprland;
+  GNOME expected) should work the same way but are not tested yet.
 - **Touch mode (`--input touch`):** native multi-touch instead of mouse clicks (long press does what the desktop decides,
   e.g. KDE's edit mode). DisplayTube creates a virtual multi-touch screen
   (`DTB DisplayTube Touchscreen`) through `/dev/uinput`. The installer adds a udev rule
